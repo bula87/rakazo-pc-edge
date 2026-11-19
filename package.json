@@ -1,0 +1,37 @@
+{
+  "name": "rakazo-pc-edge",
+  "version": "0.1.0",
+  "description": "Headless PC edge for Rakazo: scoped filesystem, concurrent PTY sessions, MCP tools",
+  "type": "module",
+  "bin": {
+    "rakazo-pc-edge": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "@xterm/headless": "^5.5.0",
+    "blessed": "^0.1.81",
+    "zod": "^3.25.76"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "allowScripts": {
+    "node-pty@1.1.0": true,
+    "esbuild@0.28.2": true
+  }
+}

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Local runtime / experiments — never publish
+key.txt
+edge-logs/
+Test/
+hello*.py
+main.py
+*.pem
+*.key
+id_rsa*
+id_ed25519*
