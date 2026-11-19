@@ -50,14 +50,16 @@ PC Edge fills that gap.
 ## Quick start
 
 ```bash
-git clone <this-repo> && cd pc-edge   # or copy this folder
+git clone https://github.com/bula87/rakazo-pc-edge.git
+cd rakazo-pc-edge
 npm install
 npm run build
 npm test                             # optional
 
 export RAKAZO_PC_EDGE_TOKEN="$(openssl rand -hex 24)"
 # Pick a project folder Edge is allowed to touch:
-rakazo-pc-edge --worker-dir ~/Projects/my-app --host 0.0.0.0 --port 8765
+node dist/cli.js --worker-dir ~/Projects/my-app --host 0.0.0.0 --port 8765
+# after global install: rakazo-pc-edge --worker-dir … --host 0.0.0.0 --port 8765
 ```
 
 You should see a TUI (or use `--plain` for classic logs). Check health:
@@ -88,6 +90,27 @@ After pulling updates: `npm run build && npm install -g .`
 4. In chat, tell the bot to use **`edge_*` tools** (e.g. `edge_list_dir`), not sandbox `read_file`.
 
 > **WSL2 tip:** Register the **Windows LAN IP**, not WSL’s `172.x` address. Bind with `--host 0.0.0.0` and use mirrored networking or Windows `portproxy` + firewall for TCP `8765`.
+
+### Rakazo plugin (skills)
+
+This repo is also a **skills-only** [Rakazo plugin](https://rakazo.com/docs/build-a-plugin/). Marketplace plugins cannot ship a private/LAN MCP URL, so each user still **adds their own Edge server** under Integrations. The plugin installs skills that teach bots to use `edge_*` tools.
+
+**Install in Rakazo**
+
+1. Run Edge and register its MCP URL + bearer token (steps above).
+2. Integrations → **+** → **From GitHub** → `https://github.com/bula87/rakazo-pc-edge`
+3. Preview → add skills → for the MCP server, choose **Use in this bot**.
+
+Skills included: `pc-edge`, `pc-edge-opencode`, `pc-edge-files`.
+
+**Submit to the marketplace** (optional)
+
+1. Push these files to the public GitHub repo.
+2. Test From GitHub install + a real `edge_info` call.
+3. Open [Submit a plugin](https://rakazo.com/plugins/submit/) with:
+   - **Logo:** `https://raw.githubusercontent.com/bula87/rakazo-pc-edge/main/assets/logo.svg`
+   - **Source:** `https://github.com/bula87/rakazo-pc-edge`
+   - **Testing:** install Edge locally → register MCP with a throwaway bearer token → install this plugin → `edge_info` / `edge_list_dir` (no real secrets in the form)
 
 ---
 
@@ -267,4 +290,4 @@ The official Desktop / `user_computer_*` tools can run commands on your machine.
 
 ## License
 
-Add your preferred license file when you publish (e.g. MIT / Apache-2.0). This package does not currently ship a `LICENSE` file.
+[MIT](./LICENSE)

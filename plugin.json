@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "rakazo-pc-edge",
+  "version": "0.1.0",
+  "description": "Skills for Rakazo PC Edge: scoped PC files, shell, PTY sessions, and OpenCode via edge_* MCP tools. Connect your self-hosted Edge MCP URL separately (bearer token).",
+  "author": {
+    "name": "bula87",
+    "url": "https://github.com/bula87"
+  },
+  "homepage": "https://github.com/bula87/rakazo-pc-edge",
+  "repository": "https://github.com/bula87/rakazo-pc-edge",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "pc-edge",
+    "opencode",
+    "filesystem",
+    "self-hosted",
+    "wsl"
+  ]
+}
