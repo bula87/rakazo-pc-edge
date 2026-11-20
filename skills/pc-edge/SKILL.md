@@ -10,16 +10,18 @@ PC Edge is a self-hosted MCP server on the user's machine. Tools are prefixed **
 ## Before first use
 
 1. Confirm tools exist: call `edge_info`. Note `privilege` (`sandbox` | `half-god` | `god`). If missing, tell the user to:
-   - Run Edge on their PC (`rakazo-pc-edge --worker-dir <project> --host 0.0.0.0 --port 8765`; default privilege is **sandbox**/bwrap)
+   - Run Edge on their PC (`rakazo-pc-edge --worker-dir <project> --host 0.0.0.0 --port 8765`; default privilege is **sandbox** — bwrap on Linux, Seatbelt on macOS)
    - Set `RAKAZO_PC_EDGE_TOKEN` and register `http(s)://<reachable-host>:8765/mcp` in Rakazo Integrations with Bearer auth
    - Self-hosted Rakazo: set `MCP_ALLOW_PRIVATE_ENDPOINT=true` on api + worker for LAN/Tailscale URLs
 2. Prefer the scoped root from `edge_info` — never assume `--god` / `--global`.
 
 | `privilege` | File tools | Shell / sessions / OpenCode |
 |-------------|------------|-----------------------------|
-| `sandbox` (default) | Access root only | Confined with bubblewrap — cannot leave the root |
+| `sandbox` (default) | Access root only | OS jail (bwrap / Seatbelt) — cannot leave the root |
 | `half-god` | Access root only | **Not** sandboxed — can leave the root |
 | `god` | Whole PC | Whole PC |
+
+`edge_info.sandboxBackend` is `bwrap` or `seatbelt` when privilege is sandbox.
 
 ## Files and shell
 

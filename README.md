@@ -28,8 +28,9 @@ PC Edge fills that gap.
 
 ## Features
 
-- **Privilege modes** — **sandbox** (default, bubblewrap), **half-god**, or **god**
+- **Privilege modes** — **sandbox** (default: bubblewrap on Linux, Seatbelt on macOS), **half-god**, or **god**
 - **Scoped filesystem** — cwd or `--worker-dir` (god mode = whole PC)
+- **macOS (Apple Silicon / Intel)** — same CLI; sandbox uses built-in `sandbox-exec`
 - **MCP tools** prefixed `edge_*` (no clash with Rakazo sandbox tools)
 - **Concurrent sessions** — multiple agents at once; filesystem tools still work
 - **OpenCode driver** — `opencode run` with pretty logs, model pick, resume by `ses_…`
@@ -42,8 +43,10 @@ PC Edge fills that gap.
 ## Requirements
 
 - **Node.js 20+**
-- **Linux** or **Windows + WSL2**
-- **[bubblewrap](https://github.com/containers/bubblewrap)** (`bwrap`) for default **sandbox** mode — e.g. `sudo apt install bubblewrap` (runtime itself needs no sudo)
+- **Linux**, **macOS** (Apple Silicon or Intel), or **Windows + WSL2**
+- Default **sandbox** jail:
+  - **Linux / WSL2:** [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) — e.g. `sudo apt install bubblewrap` (runtime needs no sudo)
+  - **macOS:** built-in **Seatbelt** via `/usr/bin/sandbox-exec` (no extra install)
 - A self-hosted or reachable **Rakazo** instance that can call your Edge URL
 - Optional: **[OpenCode](https://opencode.ai)** installed (`opencode` on `PATH`, or `~/.opencode/bin/opencode`, or `OPENCODE_BIN`)
 
@@ -68,11 +71,11 @@ node dist/cli.js --worker-dir ~/Projects/my-app --host 0.0.0.0 --port 8765
 
 | Mode | Flag | File tools | Shell / sessions / OpenCode |
 |------|------|------------|-----------------------------|
-| **sandbox** (default) | `--sandbox` | Access root only | Confined with **bubblewrap** to the access root |
+| **sandbox** (default) | `--sandbox` | Access root only | OS jail: **bwrap** (Linux) or **Seatbelt** (macOS) |
 | **half-god** | `--half-god` | Access root only | **Not** sandboxed — can leave the root |
 | **god** | `--god` / `--global` | Whole PC | Whole PC |
 
-Sandbox still bind-mounts a few host paths read-only (toolchain under `/usr`, etc.) and may RW-mount OpenCode state under `~/.opencode` so the agent can keep sessions — not your whole home.
+Sandbox still allows a few host paths (toolchain RO; OpenCode state dirs RW when present) so agents can run — not your whole home.
 
 
 You should see a TUI (or use `--plain` for classic logs). Check health:
@@ -234,7 +237,7 @@ All tools are prefixed with **`edge_`**.
 | Setting | Meaning |
 |---------|---------|
 | *(default cwd)* / `--worker-dir` | Access root for sandbox / half-god |
-| `--sandbox` | Default: bwrap-confine shell/sessions/OpenCode |
+| `--sandbox` | Default: jail shell/sessions/OpenCode (bwrap or Seatbelt) |
 | `--half-god` | Scoped file tools; unsandboxed shell |
 | `--god` / `--global` | Full PC (warning logged) |
 
@@ -247,7 +250,8 @@ All tools are prefixed with **`edge_`**.
 | `--plain` / `--no-tui` | Logs to stdout instead of TUI |
 | `--stdio` | MCP over stdio (local hosts) |
 | `OPENCODE_BIN` | Absolute path to `opencode` if not on `PATH` |
-| `BWRAP_BIN` | Absolute path to `bwrap` if not on `PATH` |
+| `BWRAP_BIN` | Absolute path to `bwrap` if not on `PATH` (Linux) |
+| `SEATBELT_BIN` | Absolute path to `sandbox-exec` (macOS; default `/usr/bin/sandbox-exec`) |
 
 MCP URL: `http://<host>:<port>/mcp`  
 Health: `http://<host>:<port>/healthz`
@@ -277,7 +281,7 @@ Always keep a strong bearer token. Prefer HTTPS. Prefer `--worker-dir` + default
 
 ## Security notes
 
-- **sandbox** (default): file tools refuse paths outside the root; shell/sessions/OpenCode run under **bubblewrap** so they cannot see or delete the rest of the PC.
+- **sandbox** (default): file tools refuse paths outside the root; shell/sessions/OpenCode run under **bubblewrap** (Linux) or **Seatbelt** (macOS) so they cannot see or delete the rest of the PC.
 - **half-god / god**: shell can leave the root (or the whole machine) — treat the bearer token like login access.
 - Secret-like names (`.env`, SSH keys, `*.pem`) are blocked unless `allowSecrets` is set.
 - Cap: 16 concurrent sessions; ~512 KiB ring buffer per session (chunked file transfer is separate).

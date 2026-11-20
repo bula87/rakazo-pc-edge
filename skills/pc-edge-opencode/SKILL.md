@@ -7,7 +7,7 @@ description: Drive OpenCode on the user's PC through Rakazo PC Edge. Use for cod
 
 Prefer dedicated OpenCode tools over spawning the fullscreen OpenCode TUI.
 
-In **sandbox** privilege (default), OpenCode runs under bubblewrap with the Edge access root RW (plus limited OpenCode state dirs). Stay inside that project `cwd`. In **half-god** / **god**, OpenCode can reach the whole PC.
+In **sandbox** privilege (default), OpenCode runs under the OS jail (bwrap on Linux, Seatbelt on macOS) with the Edge access root RW (plus limited OpenCode state dirs). Stay inside that project `cwd`. In **half-god** / **god**, OpenCode can reach the whole PC.
 
 ## One-shot task
 
