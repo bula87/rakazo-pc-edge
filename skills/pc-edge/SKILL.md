@@ -9,11 +9,12 @@ PC Edge is a self-hosted MCP server on the user's machine. Tools are prefixed **
 
 ## Before first use
 
-1. Confirm tools exist: call `edge_info`. Note `privilege` (`sandbox` | `half-god` | `god`). If missing, tell the user to:
-   - Run Edge on their PC (`rakazo-pc-edge --worker-dir <project> --host 0.0.0.0 --port 8765`; default privilege is **sandbox** — bwrap on Linux, Seatbelt on macOS)
-   - Set `RAKAZO_PC_EDGE_TOKEN` and register `http(s)://<reachable-host>:8765/mcp` in Rakazo Integrations with Bearer auth
+1. Confirm tools exist: call the **info** tool for this Edge. Names are usually `edge_<name>_info` (default style `insert`). Note `name`, `toolPrefix`, `toolExample`, and `privilege`. If tools are missing, tell the user to:
+   - Run Edge (`--name macbook` recommended when multiple PCs; default privilege is **sandbox**)
+   - Set `RAKAZO_PC_EDGE_TOKEN` and register `http(s)://<reachable-host>:8765/mcp` with Bearer auth
    - Self-hosted Rakazo: set `MCP_ALLOW_PRIVATE_ENDPOINT=true` on api + worker for LAN/Tailscale URLs
-2. Prefer the scoped root from `edge_info` — never assume `--god` / `--global`.
+2. Use tools with the **same name prefix** as that info tool (e.g. `edge_macbook_list_dir`, not bare `edge_list_dir`, unless `toolStyle` is `bare`).
+3. Prefer the scoped root from info — never assume `--god` / `--global`.
 
 | `privilege` | File tools | Shell / sessions / OpenCode |
 |-------------|------------|-----------------------------|
@@ -21,16 +22,16 @@ PC Edge is a self-hosted MCP server on the user's machine. Tools are prefixed **
 | `half-god` | Access root only | **Not** sandboxed — can leave the root |
 | `god` | Whole PC | Whole PC |
 
-`edge_info.sandboxBackend` is `bwrap` or `seatbelt` when privilege is sandbox.
+`sandboxBackend` is `bwrap` or `seatbelt` when privilege is sandbox. Two machines should use different `--name` values so tool names do not collide.
 
 ## Files and shell
 
-| Goal | Tool |
+| Goal | Tool leaf (after `edge_<name>_`) |
 |------|------|
-| List | `edge_list_dir` |
-| Small file ≤2 MiB | `edge_read_file` / `edge_write_file` |
-| Large file ≤200 MiB | `edge_file_info` + chunk tools (see **pc-edge-files** skill) |
-| Short command | `edge_shell` (timeout; not for long agents) |
+| List | `list_dir` |
+| Small file ≤2 MiB | `read_file` / `write_file` |
+| Large file ≤200 MiB | `file_info` + chunk tools (see **pc-edge-files** skill) |
+| Short command | `shell` (timeout; not for long agents) |
 
 ## Long-running processes
 

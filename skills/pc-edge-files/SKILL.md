@@ -5,7 +5,7 @@ description: Transfer large files (images, archives, up to 200 MiB) between Raka
 
 # Large file transfer (PC Edge)
 
-Use when the user needs files larger than ~2 MiB (or any binary) moved to/from the PC. Small text files can use `edge_read_file` / `edge_write_file` instead.
+Use when the user needs files larger than ~2 MiB (or any binary) moved to/from the PC. Small text files can use the instance’s `read_file` / `write_file` tools (e.g. `edge_<name>_read_file`). Chunk tools are `edge_<name>_file_*`.
 
 ## Limits
 

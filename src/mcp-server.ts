@@ -30,6 +30,7 @@ import { SessionManager } from "./sessions.js";
 import type { SessionEventKind } from "./classify.js";
 import { log, logBlock, summarize } from "./log.js";
 import { sandboxBackend } from "./privilege.js";
+import { formatToolName, type EdgeInstance } from "./instance.js";
 
 function jsonResult(data: unknown) {
   return {
@@ -98,18 +99,35 @@ function describeOneRpc(body: unknown): string {
   return summarize(body);
 }
 
-export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
+export function createEdgeMcp(
+  scope: AccessScope,
+  sessions: SessionManager,
+  instance: EdgeInstance,
+) {
+  const t = (leaf: string) => formatToolName(instance, leaf);
   const server = new McpServer({
-    name: "rakazo-pc-edge",
+    name: `rakazo-pc-edge:${instance.name}`,
     version: "0.1.0",
   });
 
   server.tool(
-    "edge_info",
+    t("info"),
     "PC Edge: describe access scope/root on the user's real computer (paths here need edge_read_file / edge_list_dir, not bot sandbox tools)",
     {},
-    wrapTool("edge_info", async () =>
+    wrapTool(t("info"), async () =>
       jsonResult({
+        name: instance.name,
+        nameSource: instance.nameSource,
+        toolStyle: instance.toolStyle,
+        toolExample: t("info"),
+        toolPrefix:
+          instance.toolStyle === "bare"
+            ? "edge_"
+            : instance.toolStyle === "prefix"
+              ? `${instance.name}_edge_`
+              : instance.toolStyle === "suffix"
+                ? "edge_*_" + instance.name
+                : `edge_${instance.name}_`,
         mode: scope.mode,
         root: scope.root,
         privilege: scope.privilege,
@@ -126,7 +144,8 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
             : null,
         platform: process.platform,
         cwd: process.cwd(),
-        hostname: process.env.HOSTNAME ?? null,
+        hostname: instance.hostname,
+        machineId: instance.machineId,
         sessions: sessions.list().length,
         privilegeHelp: {
           sandbox:
@@ -141,10 +160,10 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   // All tools are prefixed with edge_ so they do not collide with Rakazo's
   // built-in sandbox tools (read_file, shell, list_dir, …) which only see the bot computer.
   server.tool(
-    "edge_list_dir",
+    t("list_dir"),
     "PC Edge: list files on the user's real computer under the Edge access root (not the bot sandbox)",
     { path: z.string().optional().describe("Relative or absolute path under the Edge access root") },
-    wrapTool("edge_list_dir", async ({ path: p }) => {
+    wrapTool(t("list_dir"), async ({ path: p }) => {
       try {
         return jsonResult({ path: p ?? ".", entries: await listDir(scope, p ?? ".") });
       } catch (err) {
@@ -154,14 +173,14 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_read_file",
+    t("read_file"),
     "PC Edge: read a small file (≤2 MiB) on the user's computer. For larger files (up to 200 MiB) use edge_file_info + edge_file_read_chunk.",
     {
       path: z.string(),
       maxBytes: z.number().int().positive().optional(),
       allowSecrets: z.boolean().optional(),
     },
-    wrapTool("edge_read_file", async (args) => {
+    wrapTool(t("read_file"), async (args) => {
       try {
         return jsonResult(await readFileTool(scope, args.path, args));
       } catch (err) {
@@ -171,7 +190,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_write_file",
+    t("write_file"),
     "PC Edge: write a small file (≤2 MiB) on the user's computer. For larger files (up to 200 MiB) use edge_file_write_chunk.",
     {
       path: z.string(),
@@ -179,7 +198,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
       encoding: z.enum(["utf8", "base64"]).optional(),
       allowSecrets: z.boolean().optional(),
     },
-    wrapTool("edge_write_file", async (args) => {
+    wrapTool(t("write_file"), async (args) => {
       try {
         return jsonResult(await writeFileTool(scope, args.path, args.content, args));
       } catch (err) {
@@ -189,13 +208,13 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_file_info",
+    t("file_info"),
     "PC Edge: file size/mtime for transfers. Use before chunked download (edge_file_read_chunk) or to verify uploads. Limits: 200 MiB total, ≤1 MiB per chunk (default 512 KiB).",
     {
       path: z.string(),
       allowSecrets: z.boolean().optional(),
     },
-    wrapTool("edge_file_info", async ({ path: p, allowSecrets }) => {
+    wrapTool(t("file_info"), async ({ path: p, allowSecrets }) => {
       try {
         return jsonResult(await fileInfoTool(scope, p, { allowSecrets }));
       } catch (err) {
@@ -205,7 +224,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_file_read_chunk",
+    t("file_read_chunk"),
     `PC Edge: download a file chunk as base64 (large files up to ${MAX_TRANSFER_BYTES} bytes / 200 MiB). Loop: start offset=0, then use nextOffset until eof=true. Default chunk ${DEFAULT_CHUNK_BYTES} bytes, max ${MAX_CHUNK_BYTES}.`,
     {
       path: z.string(),
@@ -219,7 +238,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         .describe(`Raw bytes to read (default ${DEFAULT_CHUNK_BYTES}, max ${MAX_CHUNK_BYTES})`),
       allowSecrets: z.boolean().optional(),
     },
-    wrapTool("edge_file_read_chunk", async (args) => {
+    wrapTool(t("file_read_chunk"), async (args) => {
       try {
         return jsonResult(await readFileChunkTool(scope, args.path, args));
       } catch (err) {
@@ -229,7 +248,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_file_write_chunk",
+    t("file_write_chunk"),
     `PC Edge: upload a file chunk (large files up to ${MAX_TRANSFER_BYTES} bytes / 200 MiB). Protocol: first call offset=0 (truncates by default) with base64 content; then offset=nextOffset for each chunk. Max chunk ${MAX_CHUNK_BYTES} raw bytes.`,
     {
       path: z.string(),
@@ -242,7 +261,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         .describe("When offset=0: default true (create/replace). Set false to overwrite in place."),
       allowSecrets: z.boolean().optional(),
     },
-    wrapTool("edge_file_write_chunk", async (args) => {
+    wrapTool(t("file_write_chunk"), async (args) => {
       try {
         return jsonResult(
           await writeFileChunkTool(scope, args.path, args.content, {
@@ -259,14 +278,14 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_shell",
+    t("shell"),
     "PC Edge: short shell on the user's real computer (not the bot sandbox). For long-lived agents use edge_session_spawn",
     {
       command: z.string(),
       cwd: z.string().optional(),
       timeoutMs: z.number().int().positive().optional(),
     },
-    wrapTool("edge_shell", async (args) => {
+    wrapTool(t("shell"), async (args) => {
       try {
         return jsonResult(await shellTool(scope, args.command, args));
       } catch (err) {
@@ -276,7 +295,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_spawn",
+    t("session_spawn"),
     "PC Edge: start a long-lived process/PTY on the user's computer. Generic interactive apps use this + stdin/keys/snapshot. For OpenCode prefer edge_opencode_run (API/CLI) instead of steering the TUI.",
     {
       cmd: z.string(),
@@ -286,7 +305,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
       pty: z.boolean().optional(),
       label: z.string().optional(),
     },
-    wrapTool("edge_session_spawn", async (args) => {
+    wrapTool(t("session_spawn"), async (args) => {
       try {
         return jsonResult(await sessions.spawn(args));
       } catch (err) {
@@ -296,17 +315,17 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_list",
+    t("session_list"),
     "PC Edge: list concurrent process sessions",
     {},
-    wrapTool("edge_session_list", async () => jsonResult({ sessions: sessions.list() })),
+    wrapTool(t("session_list"), async () => jsonResult({ sessions: sessions.list() })),
   );
 
   server.tool(
-    "edge_session_status",
+    t("session_status"),
     "PC Edge: status of one session (includes uiState: idle|busy|unknown from OpenCode OSC)",
     { sessionId: z.string() },
-    wrapTool("edge_session_status", async ({ sessionId }) => {
+    wrapTool(t("session_status"), async ({ sessionId }) => {
       try {
         return jsonResult(sessions.status(sessionId));
       } catch (err) {
@@ -316,13 +335,13 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_read",
+    t("session_read"),
     "PC Edge: raw PTY/stdout buffer since a char offset (ANSI-heavy). Prefer edge_session_snapshot for readable OpenCode screens. Includes uiState.",
     {
       sessionId: z.string(),
       since: z.number().int().nonnegative().optional(),
     },
-    wrapTool("edge_session_read", async ({ sessionId, since }) => {
+    wrapTool(t("session_read"), async ({ sessionId, since }) => {
       try {
         return jsonResult(sessions.read(sessionId, since ?? 0));
       } catch (err) {
@@ -332,10 +351,10 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_snapshot",
+    t("session_snapshot"),
     "PC Edge: plain-text decoded screen of a session (what a human sees in the Edge TUI). Use this to monitor OpenCode instead of raw edge_session_read. Returns uiState (idle|busy).",
     { sessionId: z.string() },
-    wrapTool("edge_session_snapshot", async ({ sessionId }) => {
+    wrapTool(t("session_snapshot"), async ({ sessionId }) => {
       try {
         return jsonResult(await sessions.snapshot(sessionId));
       } catch (err) {
@@ -345,7 +364,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_stdin",
+    t("session_stdin"),
     "PC Edge: type into a live PTY/session. For TUIs set submit=true (Enter as \\r). For OpenCode chat follow-ups prefer edge_session_prompt or edge_opencode_*.",
     {
       sessionId: z.string(),
@@ -359,7 +378,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         .optional()
         .describe("If true, send data unchanged (no automatic Enter)"),
     },
-    wrapTool("edge_session_stdin", async ({ sessionId, data, submit, raw }) => {
+    wrapTool(t("session_stdin"), async ({ sessionId, data, submit, raw }) => {
       try {
         sessions.stdin(sessionId, data, { submit, raw });
         return jsonResult({ ok: true, sessionId, submit: Boolean(submit), raw: Boolean(raw) });
@@ -370,13 +389,13 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_prompt",
+    t("session_prompt"),
     "PC Edge: send a chat prompt into a live TUI session (Esc Esc to leave shell/panels, then type+Enter). Prefer edge_opencode_run / edge_opencode_prompt for OpenCode.",
     {
       sessionId: z.string(),
       text: z.string().describe("Prompt text to submit"),
     },
-    wrapTool("edge_session_prompt", async ({ sessionId, text }) => {
+    wrapTool(t("session_prompt"), async ({ sessionId, text }) => {
       try {
         sessions.prompt(sessionId, text);
         return jsonResult({ ok: true, sessionId });
@@ -387,7 +406,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_keys",
+    t("session_keys"),
     "PC Edge: send special keys to a PTY session (OpenCode navigation/submit). Keys: enter, esc, tab, up, down, left, right, backspace, ctrl-c, ctrl-d, ctrl-u, home, end, …",
     {
       sessionId: z.string(),
@@ -396,7 +415,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         .min(1)
         .describe("Ordered key names, e.g. [\"enter\"] or [\"esc\",\"enter\"]"),
     },
-    wrapTool("edge_session_keys", async ({ sessionId, keys }) => {
+    wrapTool(t("session_keys"), async ({ sessionId, keys }) => {
       try {
         sessions.sendKeys(sessionId, keys);
         return jsonResult({ ok: true, sessionId, keys });
@@ -407,13 +426,13 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_kill",
+    t("session_kill"),
     "PC Edge: stop an active process session (SIGTERM by default). Use this from Rakazo to tear down stuck OpenCode/PTY sessions. Session stays listed as exited until edge_session_remove.",
     {
       sessionId: z.string(),
       signal: z.string().optional(),
     },
-    wrapTool("edge_session_kill", async ({ sessionId, signal }) => {
+    wrapTool(t("session_kill"), async ({ sessionId, signal }) => {
       try {
         sessions.kill(sessionId, (signal as NodeJS.Signals) || "SIGTERM");
         return jsonResult({ ok: true, sessionId });
@@ -424,10 +443,10 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_remove",
+    t("session_remove"),
     "PC Edge: drop an exited session from the list (must edge_session_kill first if still active).",
     { sessionId: z.string() },
-    wrapTool("edge_session_remove", async ({ sessionId }) => {
+    wrapTool(t("session_remove"), async ({ sessionId }) => {
       try {
         sessions.remove(sessionId);
         return jsonResult({ ok: true, sessionId });
@@ -438,7 +457,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_session_wait_event",
+    t("session_wait_event"),
     "PC Edge: block until a meaningful session event. For OpenCode (stays running), wait for kinds=[\"idle\"] with afterBusy=true after you submit work — that means the agent finished. Do NOT rely on \"done\" (process exit) or \"progress\" (every redraw). Prefer kinds idle|busy|question|permission|error; use progress alone only if you want redraw spam.",
     {
       sessionId: z.string(),
@@ -463,7 +482,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
           "When waiting for idle: require a busy period first (use after edge_session_stdin submit). Ignores the idle state that was already true before work started.",
         ),
     },
-    wrapTool("edge_session_wait_event", async ({ sessionId, kinds, timeoutMs, afterBusy }) => {
+    wrapTool(t("session_wait_event"), async ({ sessionId, kinds, timeoutMs, afterBusy }) => {
       try {
         const event = await sessions.waitEvent(
           sessionId,
@@ -481,7 +500,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   // ── Dedicated OpenCode driver (prefer over TUI steering) ─────────────────
 
   server.tool(
-    "edge_opencode_models",
+    t("opencode_models"),
     "List available OpenCode models. Each entry has `ref` (provider/model) for edge_opencode_run / edge_opencode_prompt / edge_opencode_test_model `model` param. Set detailed=false for just ref strings.",
     {
       cwd: z.string().optional(),
@@ -490,7 +509,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         .optional()
         .describe("Default true — full model list via API. false = quick `opencode models` refs only."),
     },
-    wrapTool("edge_opencode_models", async ({ cwd, detailed }) => {
+    wrapTool(t("opencode_models"), async ({ cwd, detailed }) => {
       try {
         const dir = cwd ? resolveOpencodeCwd(scope, cwd) : undefined;
         if (detailed === false) {
@@ -509,10 +528,10 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_opencode_providers",
+    t("opencode_providers"),
     "List OpenCode providers (apiKey redacted). Use with edge_opencode_models to pick a model ref.",
     { cwd: z.string().optional() },
-    wrapTool("edge_opencode_providers", async ({ cwd }) => {
+    wrapTool(t("opencode_providers"), async ({ cwd }) => {
       try {
         const dir = cwd ? resolveOpencodeCwd(scope, cwd) : undefined;
         const providers = await opencodeListProviders({ cwd: dir, scope });
@@ -524,7 +543,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_opencode_test_model",
+    t("opencode_test_model"),
     "Smoke-test a model: short `opencode run --model <ref>` asking for a one-word reply. Wait with edge_session_wait_event kinds=[\"done\",\"error\"], then edge_session_snapshot / status.",
     {
       model: z.string().describe("Model ref from edge_opencode_models, e.g. opencode/big-pickle"),
@@ -536,7 +555,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
       label: z.string().optional(),
       standalone: z.boolean().optional(),
     },
-    wrapTool("edge_opencode_test_model", async ({ model, cwd, message, label, standalone }) => {
+    wrapTool(t("opencode_test_model"), async ({ model, cwd, message, label, standalone }) => {
       try {
         return jsonResult(
           await opencodeSpawnRun(scope, sessions, {
@@ -555,7 +574,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_opencode_run",
+    t("opencode_run"),
     "PREFERRED for OpenCode: spawn `opencode run --standalone --auto --format json <message>` as a live Edge session (pretty tool/text logs in the session pane). Optional model: \"provider/model\" from edge_opencode_models. Process exit = done — wait with edge_session_wait_event kinds=[\"done\",\"error\"]. After finish, edge_session_status includes opencodeSessionId (ses_…) for edge_opencode_prompt resume. Verify with edge_list_dir / edge_read_file.",
     {
       message: z.string().describe("Task prompt for OpenCode"),
@@ -573,7 +592,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         .optional()
         .describe("Default true — private server (avoid shared background TUI service)"),
     },
-    wrapTool("edge_opencode_run", async (args) => {
+    wrapTool(t("opencode_run"), async (args) => {
       try {
         return jsonResult(await opencodeSpawnRun(scope, sessions, args));
       } catch (err) {
@@ -583,13 +602,13 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_opencode_session_create",
+    t("opencode_session_create"),
     "OpenCode API: create a multi-turn session bound to a directory (location.directory). Then use edge_opencode_prompt + edge_opencode_wait_idle.",
     {
       cwd: z.string().optional(),
       title: z.string().optional(),
     },
-    wrapTool("edge_opencode_session_create", async ({ cwd, title }) => {
+    wrapTool(t("opencode_session_create"), async ({ cwd, title }) => {
       try {
         const dir = resolveOpencodeCwd(scope, cwd);
         const session = await opencodeCreateSession({ cwd: dir, title, scope });
@@ -601,7 +620,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_opencode_prompt",
+    t("opencode_prompt"),
     "Resume an OpenCode session with a follow-up: spawns a LIVE `opencode run --session <ses_…>` Edge session (pretty logs in the session pane). Optional model override. Wait with edge_session_wait_event kinds=[\"done\",\"error\"].",
     {
       opencodeSessionId: z.string().describe("OpenCode session id (ses_…), not Edge session id"),
@@ -616,7 +635,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
       standalone: z.boolean().optional(),
     },
     wrapTool(
-      "edge_opencode_prompt",
+      t("opencode_prompt"),
       async ({ opencodeSessionId, text, cwd, title, model, label, standalone }) => {
         try {
           return jsonResult(
@@ -638,10 +657,10 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_opencode_sessions",
+    t("opencode_sessions"),
     "OpenCode API: list OpenCode sessions (session.list).",
     { cwd: z.string().optional() },
-    wrapTool("edge_opencode_sessions", async ({ cwd }) => {
+    wrapTool(t("opencode_sessions"), async ({ cwd }) => {
       try {
         const dir = cwd ? resolveOpencodeCwd(scope, cwd) : undefined;
         const list = await opencodeListSessions({ cwd: dir, scope });
@@ -653,7 +672,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   );
 
   server.tool(
-    "edge_opencode_wait_idle",
+    t("opencode_wait_idle"),
     "OpenCode API poll helper (rarely needed). For edge_opencode_run / edge_opencode_prompt, wait with edge_session_wait_event kinds=[\"done\",\"error\"] on the Edge session instead — those are live processes with session-pane logs.",
     {
       opencodeSessionId: z.string(),
@@ -661,7 +680,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
       timeoutMs: z.number().int().positive().optional(),
       afterBusy: z.boolean().optional(),
     },
-    wrapTool("edge_opencode_wait_idle", async ({ opencodeSessionId, cwd, timeoutMs, afterBusy }) => {
+    wrapTool(t("opencode_wait_idle"), async ({ opencodeSessionId, cwd, timeoutMs, afterBusy }) => {
       try {
         const dir = cwd ? resolveOpencodeCwd(scope, cwd) : undefined;
         const session = await opencodeWaitIdle({
@@ -681,9 +700,13 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
   return server;
 }
 
-export async function startStdioMcp(scope: AccessScope, sessions: SessionManager): Promise<void> {
-  log("stdio MCP transport starting");
-  const mcp = createEdgeMcp(scope, sessions);
+export async function startStdioMcp(
+  scope: AccessScope,
+  sessions: SessionManager,
+  instance: EdgeInstance,
+): Promise<void> {
+  log(`stdio MCP transport starting name=${instance.name} style=${instance.toolStyle}`);
+  const mcp = createEdgeMcp(scope, sessions, instance);
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
 }
@@ -715,6 +738,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 export async function listenMcp(opts: {
   scope: AccessScope;
   sessions: SessionManager;
+  instance: EdgeInstance;
   host: string;
   port: number;
   token: string;
@@ -728,6 +752,8 @@ export async function listenMcp(opts: {
       res.end(
         JSON.stringify({
           ok: true,
+          name: opts.instance.name,
+          toolStyle: opts.instance.toolStyle,
           mode: opts.scope.mode,
           root: opts.scope.root,
           privilege: opts.scope.privilege,
@@ -750,7 +776,7 @@ export async function listenMcp(opts: {
       return;
     }
 
-    const mcp = createEdgeMcp(opts.scope, opts.sessions);
+    const mcp = createEdgeMcp(opts.scope, opts.sessions, opts.instance);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

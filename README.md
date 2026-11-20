@@ -29,6 +29,7 @@ PC Edge fills that gap.
 ## Features
 
 - **Privilege modes** — **sandbox** (default: bubblewrap on Linux, Seatbelt on macOS), **half-god**, or **god**
+- **Instance name** — `--name` or a stable auto name; tools become `edge_<name>_…` so two PCs don’t collide
 - **Scoped filesystem** — cwd or `--worker-dir` (god mode = whole PC)
 - **macOS (Apple Silicon / Intel)** — same CLI; sandbox uses built-in `sandbox-exec`
 - **MCP tools** prefixed `edge_*` (no clash with Rakazo sandbox tools)
@@ -65,6 +66,25 @@ export RAKAZO_PC_EDGE_TOKEN="$(openssl rand -hex 24)"
 # Default privilege = sandbox (bwrap). Pick a project folder Edge may touch:
 node dist/cli.js --worker-dir ~/Projects/my-app --host 0.0.0.0 --port 8765
 # after global install: rakazo-pc-edge --worker-dir … --host 0.0.0.0 --port 8765
+```
+
+### Instance name & tool namespaces
+
+| Flag / env | Meaning |
+|------------|---------|
+| `--name <slug>` / `RAKAZO_PC_EDGE_NAME` | Friendly id (e.g. `macbook`, `wsl-dev`) |
+| *(default)* | Stable auto name: `hostname` + short machine fingerprint |
+| `--tool-style insert` *(default)* | `edge_<name>_info`, `edge_<name>_shell`, … |
+| `--tool-style prefix` | `<name>_edge_info`, … |
+| `--tool-style suffix` | `edge_info_<name>`, … |
+| `--tool-style bare` | Classic `edge_info` (legacy; bad if two Edges share one bot) |
+
+Call the info tool first (e.g. `edge_macbook_info`) — it returns `name`, `toolExample`, and `toolPrefix`.
+
+```bash
+# Two machines, no collisions:
+node dist/cli.js --name macbook --god --host 0.0.0.0 --port 8765
+node dist/cli.js --name wsl --worker-dir ~/proj --host 0.0.0.0 --port 8765
 ```
 
 ### Privilege modes

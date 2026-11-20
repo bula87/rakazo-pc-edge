@@ -1,14 +1,29 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto";
+import {
+  parseToolStyle,
+  resolveEdgeInstance,
+  type ToolNameStyle,
+} from "./instance.js";
 import { assertSandboxAvailable, privilegeLabel, type PrivilegeMode } from "./privilege.js";
 import { createScope } from "./scope.js";
 import { SessionManager } from "./sessions.js";
 import { listenMcp, startStdioMcp } from "./mcp-server.js";
 import { startTui } from "./tui.js";
+import { formatToolName } from "./instance.js";
 
 function usage(): never {
   console.error(`Usage:
   rakazo-pc-edge [options]
+
+Instance name (for multi-PC / tool namespaces):
+  --name <slug>          Friendly name baked into MCP tool names (default: stable
+                         auto name from hostname + machine id)
+  --tool-style <style>   How the name appears in tool names (default: insert):
+                           insert → edge_<name>_info
+                           prefix → <name>_edge_info
+                           suffix → edge_info_<name>
+                           bare   → edge_info  (legacy; collisions with a 2nd Edge)
 
 Privilege (pick one; default is sandbox):
   (default) / --sandbox  File tools + shell/sessions/OpenCode confined to the access root
@@ -29,10 +44,13 @@ Server:
   --no-tui               Alias for --plain
 
 Env:
-  RAKAZO_PC_EDGE_TOKEN   Shared secret required by Rakazo MCP registration
-  BWRAP_BIN              Absolute path to bubblewrap (Linux sandbox)
-  SEATBELT_BIN           Absolute path to sandbox-exec (macOS sandbox; default /usr/bin/sandbox-exec)
-  OPENCODE_BIN           Absolute path to opencode (optional)
+  RAKAZO_PC_EDGE_TOKEN        Shared secret required by Rakazo MCP registration
+  RAKAZO_PC_EDGE_NAME         Same as --name
+  RAKAZO_PC_EDGE_TOOL_STYLE   Same as --tool-style
+  EDGE_NAME / EDGE_TOOL_STYLE Aliases for the above
+  BWRAP_BIN                   Absolute path to bubblewrap (Linux sandbox)
+  SEATBELT_BIN                Absolute path to sandbox-exec (macOS)
+  OPENCODE_BIN                Absolute path to opencode (optional)
 `);
   process.exit(2);
 }
@@ -41,6 +59,8 @@ function parseArgs(argv: string[]) {
   const out: {
     workerDir?: string;
     privilege?: PrivilegeMode;
+    name?: string;
+    toolStyle?: ToolNameStyle;
     host: string;
     port: number;
     token?: string;
@@ -76,7 +96,16 @@ function parseArgs(argv: string[]) {
     } else if (a === "--stdio") out.stdio = true;
     else if (a === "--plain" || a === "--no-tui") out.plain = true;
     else if (a === "--worker-dir") out.workerDir = argv[++i];
-    else if (a === "--host") out.host = argv[++i] ?? out.host;
+    else if (a === "--name") out.name = argv[++i];
+    else if (a === "--tool-style") {
+      const raw = argv[++i] ?? "";
+      const style = parseToolStyle(raw);
+      if (!style) {
+        console.error("Invalid --tool-style (use insert|prefix|suffix|bare)");
+        usage();
+      }
+      out.toolStyle = style;
+    } else if (a === "--host") out.host = argv[++i] ?? out.host;
     else if (a === "--port") out.port = Number(argv[++i]);
     else if (a === "--token") out.token = argv[++i];
     else {
@@ -95,6 +124,10 @@ function parseArgs(argv: string[]) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const privilege: PrivilegeMode = args.privilege ?? "sandbox";
+  const instance = resolveEdgeInstance({
+    name: args.name,
+    toolStyle: args.toolStyle,
+  });
 
   if (privilege === "sandbox") {
     try {
@@ -122,9 +155,10 @@ async function main() {
   }
 
   const sessions = new SessionManager(scope);
+  const infoTool = formatToolName(instance, "info");
 
   if (args.stdio) {
-    await startStdioMcp(scope, sessions);
+    await startStdioMcp(scope, sessions, instance);
     return;
   }
 
@@ -142,6 +176,7 @@ async function main() {
   const { url, close } = await listenMcp({
     scope,
     sessions,
+    instance,
     host: args.host,
     port: args.port,
     token,
@@ -160,6 +195,8 @@ async function main() {
   });
 
   const titleBits = [
+    `name=${instance.name}`,
+    `tools=${instance.toolStyle}`,
     `privilege=${privilegeLabel(scope.privilege)}`,
     `mode=${scope.mode}`,
     `root=${scope.root ?? "(global)"}`,
@@ -173,6 +210,9 @@ async function main() {
       exportRoot: scope.root ?? process.cwd(),
     });
   } else {
+    console.log(
+      `[rakazo-pc-edge] name=${instance.name} (${instance.nameSource}) toolStyle=${instance.toolStyle} example=${infoTool}`,
+    );
     console.log(
       `[rakazo-pc-edge] privilege=${privilegeLabel(scope.privilege)} mode=${scope.mode} root=${scope.root ?? "(global)"}`,
     );
