@@ -1,6 +1,6 @@
 ---
 name: pc-edge
-description: Use Rakazo PC Edge (edge_* MCP tools) when the user wants work on their real Linux/WSL PC — project files, shell, long-lived CLI agents — not the bot sandbox. Prefer edge_* over sandbox read_file/shell/user_computer_* for PC work.
+description: Use Rakazo PC Edge (edge_* MCP tools) when the user wants work on their real Linux/WSL PC — project files, shell, long-lived CLI agents — not the bot sandbox. Check edge_info.privilege (sandbox/half-god/god). Prefer edge_* over sandbox read_file/shell/user_computer_* for PC work.
 ---
 
 # Rakazo PC Edge
@@ -9,11 +9,17 @@ PC Edge is a self-hosted MCP server on the user's machine. Tools are prefixed **
 
 ## Before first use
 
-1. Confirm tools exist: call `edge_info`. If missing, tell the user to:
-   - Run Edge on their PC (`rakazo-pc-edge --worker-dir <project> --host 0.0.0.0 --port 8765`)
+1. Confirm tools exist: call `edge_info`. Note `privilege` (`sandbox` | `half-god` | `god`). If missing, tell the user to:
+   - Run Edge on their PC (`rakazo-pc-edge --worker-dir <project> --host 0.0.0.0 --port 8765`; default privilege is **sandbox**/bwrap)
    - Set `RAKAZO_PC_EDGE_TOKEN` and register `http(s)://<reachable-host>:8765/mcp` in Rakazo Integrations with Bearer auth
    - Self-hosted Rakazo: set `MCP_ALLOW_PRIVATE_ENDPOINT=true` on api + worker for LAN/Tailscale URLs
-2. Prefer the scoped root from `edge_info` — never assume `--global`.
+2. Prefer the scoped root from `edge_info` — never assume `--god` / `--global`.
+
+| `privilege` | File tools | Shell / sessions / OpenCode |
+|-------------|------------|-----------------------------|
+| `sandbox` (default) | Access root only | Confined with bubblewrap — cannot leave the root |
+| `half-god` | Access root only | **Not** sandboxed — can leave the root |
+| `god` | Whole PC | Whole PC |
 
 ## Files and shell
 

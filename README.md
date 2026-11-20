@@ -28,7 +28,8 @@ PC Edge fills that gap.
 
 ## Features
 
-- **Scoped filesystem** — cwd, `--worker-dir`, or `--global` (explicit)
+- **Privilege modes** — **sandbox** (default, bubblewrap), **half-god**, or **god**
+- **Scoped filesystem** — cwd or `--worker-dir` (god mode = whole PC)
 - **MCP tools** prefixed `edge_*` (no clash with Rakazo sandbox tools)
 - **Concurrent sessions** — multiple agents at once; filesystem tools still work
 - **OpenCode driver** — `opencode run` with pretty logs, model pick, resume by `ses_…`
@@ -42,6 +43,7 @@ PC Edge fills that gap.
 
 - **Node.js 20+**
 - **Linux** or **Windows + WSL2**
+- **[bubblewrap](https://github.com/containers/bubblewrap)** (`bwrap`) for default **sandbox** mode — e.g. `sudo apt install bubblewrap` (runtime itself needs no sudo)
 - A self-hosted or reachable **Rakazo** instance that can call your Edge URL
 - Optional: **[OpenCode](https://opencode.ai)** installed (`opencode` on `PATH`, or `~/.opencode/bin/opencode`, or `OPENCODE_BIN`)
 
@@ -57,10 +59,21 @@ npm run build
 npm test                             # optional
 
 export RAKAZO_PC_EDGE_TOKEN="$(openssl rand -hex 24)"
-# Pick a project folder Edge is allowed to touch:
+# Default privilege = sandbox (bwrap). Pick a project folder Edge may touch:
 node dist/cli.js --worker-dir ~/Projects/my-app --host 0.0.0.0 --port 8765
 # after global install: rakazo-pc-edge --worker-dir … --host 0.0.0.0 --port 8765
 ```
+
+### Privilege modes
+
+| Mode | Flag | File tools | Shell / sessions / OpenCode |
+|------|------|------------|-----------------------------|
+| **sandbox** (default) | `--sandbox` | Access root only | Confined with **bubblewrap** to the access root |
+| **half-god** | `--half-god` | Access root only | **Not** sandboxed — can leave the root |
+| **god** | `--god` / `--global` | Whole PC | Whole PC |
+
+Sandbox still bind-mounts a few host paths read-only (toolchain under `/usr`, etc.) and may RW-mount OpenCode state under `~/.opencode` so the agent can keep sessions — not your whole home.
+
 
 You should see a TUI (or use `--plain` for classic logs). Check health:
 
@@ -216,13 +229,14 @@ All tools are prefixed with **`edge_`**.
 
 ## Configuration
 
-### Access scope
+### Access root & privilege
 
-| Mode | Flag |
-|------|------|
-| Current directory | *(default)* |
-| One project folder | `--worker-dir /path/to/project` |
-| Whole machine | `--global` (logs a warning — avoid on public tunnels) |
+| Setting | Meaning |
+|---------|---------|
+| *(default cwd)* / `--worker-dir` | Access root for sandbox / half-god |
+| `--sandbox` | Default: bwrap-confine shell/sessions/OpenCode |
+| `--half-god` | Scoped file tools; unsandboxed shell |
+| `--god` / `--global` | Full PC (warning logged) |
 
 ### Auth & network
 
@@ -233,6 +247,7 @@ All tools are prefixed with **`edge_`**.
 | `--plain` / `--no-tui` | Logs to stdout instead of TUI |
 | `--stdio` | MCP over stdio (local hosts) |
 | `OPENCODE_BIN` | Absolute path to `opencode` if not on `PATH` |
+| `BWRAP_BIN` | Absolute path to `bwrap` if not on `PATH` |
 
 MCP URL: `http://<host>:<port>/mcp`  
 Health: `http://<host>:<port>/healthz`
@@ -256,13 +271,14 @@ Models/providers come from your local OpenCode install and config (e.g. `~/.open
 | ngrok | `ngrok http 8765` |
 | SSH reverse tunnel | VPS + Caddy/nginx in front |
 
-Always keep a strong bearer token. Prefer HTTPS. Prefer `--worker-dir` over `--global` when remote.
+Always keep a strong bearer token. Prefer HTTPS. Prefer `--worker-dir` + default **sandbox** over `--half-god` / `--god` when remote.
 
 ---
 
 ## Security notes
 
-- Path escape outside the access root is refused.
+- **sandbox** (default): file tools refuse paths outside the root; shell/sessions/OpenCode run under **bubblewrap** so they cannot see or delete the rest of the PC.
+- **half-god / god**: shell can leave the root (or the whole machine) — treat the bearer token like login access.
 - Secret-like names (`.env`, SSH keys, `*.pem`) are blocked unless `allowSecrets` is set.
 - Cap: 16 concurrent sessions; ~512 KiB ring buffer per session (chunked file transfer is separate).
 - Never register an unauthenticated Edge URL on the public internet.
