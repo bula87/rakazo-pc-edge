@@ -1,6 +1,6 @@
 ---
 name: pc-edge
-description: Use Rakazo PC Edge (edge_* MCP tools) when the user wants work on their real Linux/WSL PC — project files, shell, long-lived CLI agents — not the bot sandbox. Check edge_info.privilege (sandbox/half-god/god). Prefer edge_* over sandbox read_file/shell/user_computer_* for PC work.
+description: Use Rakazo PC Edge (edge_* MCP tools) when the user wants work on their real Linux/WSL/macOS PC — project files, shell, long-lived CLI agents, optional desktop control — not the bot sandbox. Check edge_info.privilege (sandbox/half-god/god) and desktopEnabled. Prefer edge_* over sandbox read_file/shell/user_computer_* for PC work.
 ---
 
 # Rakazo PC Edge
@@ -39,6 +39,26 @@ PC Edge is a self-hosted MCP server on the user's machine. Tools are prefixed **
 - Monitor with `edge_session_snapshot` and `edge_session_wait_event` (`done`, `error`, `idle`, `busy`).
 - Stop with `edge_session_kill`; clear with `edge_session_remove`.
 - For **OpenCode**, use the **pc-edge-opencode** skill (`edge_opencode_run` / `edge_opencode_prompt`) instead of typing into the OpenCode TUI.
+
+## Desktop / computer-use
+
+When `edge_info` shows `desktopEnabled: true` (Edge started with `--desktop`):
+
+1. Call `desktop_info` first — note `activeBackend` (`vnc` or `native`) and `liveViewPath`.
+2. Loop: `desktop_snapshot` → act with `desktop_mouse_*` / `desktop_type` / `desktop_keys` → optional `desktop_wait_change`.
+3. Prefer `desktop_open` for apps/URLs instead of clicking dock icons blindly.
+4. Coordinates are absolute screen pixels from `desktop_screen_size` / the snapshot.
+
+| Leaf | Use |
+|------|-----|
+| `desktop_info` / `desktop_vnc_status` | Backend + VNC health |
+| `desktop_snapshot` | JPEG (base64); optional region |
+| `desktop_mouse_move` / `_click` / `_scroll` / `_drag` | Pointer |
+| `desktop_wait_change` | Wait for UI change |
+| `desktop_type` / `desktop_keys` | Typing / chords (`cmd`,`c`) |
+| `desktop_open` | Native open app/URL |
+
+If desktop tools are missing, ask the user to restart Edge with `--desktop` (and optionally `EDGE_VNC_USER` + `EDGE_VNC_PASSWORD` for Screen Sharing).
 
 ## Rules of thumb
 

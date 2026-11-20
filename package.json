@@ -20,6 +20,8 @@
     "@modelcontextprotocol/sdk": "^1.22.0",
     "@xterm/headless": "^5.5.0",
     "blessed": "^0.1.81",
+    "jpeg-js": "^0.4.4",
+    "rfb2": "^1.1.0",
     "zod": "^3.25.76"
   },
   "optionalDependencies": {

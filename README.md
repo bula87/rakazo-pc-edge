@@ -22,6 +22,7 @@ PC Edge fills that gap.
 | Short commands | `edge_shell` |
 | OpenCode coding agent | `edge_opencode_run` / `edge_opencode_prompt` |
 | Any other interactive CLI | `edge_session_spawn` + stdin/keys |
+| Screen / mouse / keyboard | `--desktop` → `edge_*_desktop_*` (native + optional local VNC) |
 | Watch what’s happening | Local TUI with live session panes + Global MCP log |
 
 ---
@@ -37,19 +38,24 @@ PC Edge fills that gap.
 - **OpenCode driver** — `opencode run` with pretty logs, model pick, resume by `ses_…`
 - **Large file transfer** — chunked upload/download up to **200 MiB**
 - **Local TUI** — Global MCP traffic + per-session views, export logs, kill sessions
+- **Desktop / computer-use** — `--desktop`: native screenshot + mouse/keyboard, optional persistent VNC to local Screen Sharing (vincent-vnc-mcp style), live `GET /desktop/frame.jpg`
 - **Auth** — bearer token required on every MCP request
 
 ---
 
 ## Requirements
 
-- **Node.js 20+**
+- **Node.js 20+** (VNC backend via `rfb2` prefers **Node 22.12+**)
 - **Linux**, **macOS** (Apple Silicon or Intel), or **Windows + WSL2**
 - Default **sandbox** jail:
   - **Linux / WSL2:** [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) — e.g. `sudo apt install bubblewrap` (runtime needs no sudo)
   - **macOS:** built-in **Seatbelt** via `/usr/bin/sandbox-exec` (no extra install)
 - A self-hosted or reachable **Rakazo** instance that can call your Edge URL
 - Optional: **[OpenCode](https://opencode.ai)** installed (`opencode` on `PATH`, or `~/.opencode/bin/opencode`, or `OPENCODE_BIN`)
+- Optional **desktop**:
+  - **macOS native:** Screen Recording + Accessibility for the Edge process; Xcode CLT (`swiftc`) once
+  - **Linux native:** `xdotool` + `grim` / ImageMagick / `gnome-screenshot`
+  - **VNC:** Screen Sharing (or any RFB) on `127.0.0.1:5900` + `EDGE_VNC_PASSWORD` (and usually `EDGE_VNC_USER` on macOS)
 
 ---
 
@@ -248,6 +254,35 @@ All tools are prefixed with **`edge_`**.
 
 **Tip:** Prefer `edge_opencode_run` over typing into the OpenCode fullscreen TUI. Process exit = finished; the Edge pane shows pretty tool/assistant lines.
 
+### Desktop / computer-use (`--desktop`)
+
+Hybrid control inspired by [vincent-vnc-mcp](https://github.com/cookiemonster0921/vincent-vnc-mcp): one persistent local VNC client + JPEG frame cache for tools and a live poller, with native OS fallback when VNC is down.
+
+```bash
+# Native only (screenshot + input helpers)
+node dist/cli.js --name macbook --god --desktop --desktop-backend native --host 0.0.0.0 --port 8765
+
+# Prefer Screen Sharing on localhost (macOS): enable Sharing → Screen Sharing, then:
+export EDGE_VNC_USER="$USER"
+export EDGE_VNC_PASSWORD='…'   # that account’s password
+node dist/cli.js --name macbook --god --desktop --host 0.0.0.0 --port 8765
+```
+
+| Tool leaf (after `edge_<name>_`) | Purpose |
+|----------------------------------|---------|
+| `desktop_info` | Capabilities, active backend, VNC state, live-view path |
+| `desktop_snapshot` | JPEG screenshot (base64); optional region / maxWidth |
+| `desktop_screen_size` | Width / height |
+| `desktop_mouse_move` / `_click` / `_scroll` / `_drag` | Pointer |
+| `desktop_wait_change` | Wait until the frame changes (or timeout) |
+| `desktop_type` / `desktop_keys` | Keyboard |
+| `desktop_open` | Native `open` / `xdg-open` (apps & URLs) |
+| `desktop_vnc_status` | VNC connection + frame age |
+
+Live view (same Bearer as MCP): `GET http://<host>:<port>/desktop/frame.jpg`
+
+**macOS tip (vincent):** connecting VNC as a *different* user than the console creates a separate virtual session. Same-user credentials mirror the live console.
+
 ---
 
 ## Configuration
@@ -272,9 +307,16 @@ All tools are prefixed with **`edge_`**.
 | `OPENCODE_BIN` | Absolute path to `opencode` if not on `PATH` |
 | `BWRAP_BIN` | Absolute path to `bwrap` if not on `PATH` (Linux) |
 | `SEATBELT_BIN` | Absolute path to `sandbox-exec` (macOS; default `/usr/bin/sandbox-exec`) |
+| `--desktop` / `EDGE_DESKTOP=1` | Enable desktop tools + `/desktop/frame.jpg` |
+| `--desktop-backend` / `EDGE_DESKTOP_BACKEND` | `auto` (default) \| `native` \| `vnc` |
+| `EDGE_VNC_HOST` / `VNC_HOST` | Default `127.0.0.1` |
+| `EDGE_VNC_PORT` / `VNC_PORT` | Default `5900` |
+| `EDGE_VNC_USER` / `VNC_USER` | Screen Sharing username (macOS) |
+| `EDGE_VNC_PASSWORD` / `VNC_PASSWORD` | Screen Sharing / VNC password |
 
 MCP URL: `http://<host>:<port>/mcp`  
-Health: `http://<host>:<port>/healthz`
+Health: `http://<host>:<port>/healthz`  
+Desktop live JPEG: `http://<host>:<port>/desktop/frame.jpg`
 
 ### OpenCode on the host
 

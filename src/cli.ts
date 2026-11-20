@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto";
 import {
+  formatToolName,
   parseToolStyle,
   resolveEdgeInstance,
   type ToolNameStyle,
 } from "./instance.js";
+import { DesktopController, parseDesktopBackend, type DesktopBackend } from "./desktop/index.js";
 import { assertSandboxAvailable, privilegeLabel, type PrivilegeMode } from "./privilege.js";
 import { createScope } from "./scope.js";
 import { SessionManager } from "./sessions.js";
 import { listenMcp, startStdioMcp } from "./mcp-server.js";
 import { startTui } from "./tui.js";
-import { formatToolName } from "./instance.js";
 
 function usage(): never {
   console.error(`Usage:
@@ -19,16 +20,15 @@ function usage(): never {
 Instance name (for multi-PC / tool namespaces):
   --name <slug>          Friendly name baked into MCP tool names (default: stable
                          auto name from hostname + machine id)
-  --tool-style <style>   How the name appears in tool names (default: insert):
-                           insert → edge_<name>_info
-                           prefix → <name>_edge_info
-                           suffix → edge_info_<name>
-                           bare   → edge_info  (legacy; collisions with a 2nd Edge)
+  --tool-style <style>   insert|prefix|suffix|bare (default: insert)
+
+Desktop / computer-use (hybrid native + local VNC):
+  --desktop              Enable screenshot + mouse/keyboard tools (+ live /desktop/frame.jpg)
+  --desktop-backend <b>  auto|native|vnc (default: auto — VNC when connected, else native)
 
 Privilege (pick one; default is sandbox):
   (default) / --sandbox  File tools + shell/sessions/OpenCode confined to the access root
-                         Linux: bubblewrap (bwrap). macOS: Seatbelt (sandbox-exec).
-  --half-god             File tools stay in the access root; shell/sessions can leave it
+  --half-god             File tools scoped; shell/sessions can leave the root
   --god                  Full PC access for tools and shell (alias: --global)
 
 Access root (sandbox / half-god):
@@ -39,18 +39,18 @@ Server:
   --host <addr>          Bind address (default 127.0.0.1)
   --port <n>             Port (default 8765)
   --token <secret>       Bearer token (or env RAKAZO_PC_EDGE_TOKEN)
-  --stdio                Speak MCP over stdio instead of HTTP (for local MCP hosts)
-  --plain                Disable interactive TUI; print logs to stdout only
-  --no-tui               Alias for --plain
+  --stdio                Speak MCP over stdio instead of HTTP
+  --plain / --no-tui     Logs to stdout instead of TUI
 
 Env:
-  RAKAZO_PC_EDGE_TOKEN        Shared secret required by Rakazo MCP registration
-  RAKAZO_PC_EDGE_NAME         Same as --name
-  RAKAZO_PC_EDGE_TOOL_STYLE   Same as --tool-style
-  EDGE_NAME / EDGE_TOOL_STYLE Aliases for the above
-  BWRAP_BIN                   Absolute path to bubblewrap (Linux sandbox)
-  SEATBELT_BIN                Absolute path to sandbox-exec (macOS)
-  OPENCODE_BIN                Absolute path to opencode (optional)
+  RAKAZO_PC_EDGE_TOKEN / RAKAZO_PC_EDGE_NAME / RAKAZO_PC_EDGE_TOOL_STYLE
+  EDGE_DESKTOP=1              Same as --desktop
+  EDGE_DESKTOP_BACKEND        auto|native|vnc
+  EDGE_VNC_HOST / VNC_HOST    default 127.0.0.1
+  EDGE_VNC_PORT / VNC_PORT    default 5900
+  EDGE_VNC_USER / VNC_USER    macOS Screen Sharing username (vincent-style)
+  EDGE_VNC_PASSWORD / VNC_PASSWORD
+  BWRAP_BIN / SEATBELT_BIN / OPENCODE_BIN
 `);
   process.exit(2);
 }
@@ -61,6 +61,8 @@ function parseArgs(argv: string[]) {
     privilege?: PrivilegeMode;
     name?: string;
     toolStyle?: ToolNameStyle;
+    desktop?: boolean;
+    desktopBackend?: DesktopBackend;
     host: string;
     port: number;
     token?: string;
@@ -93,6 +95,9 @@ function parseArgs(argv: string[]) {
         usage();
       }
       out.privilege = "god";
+    } else if (a === "--desktop") out.desktop = true;
+    else if (a === "--desktop-backend") {
+      out.desktopBackend = parseDesktopBackend(argv[++i]);
     } else if (a === "--stdio") out.stdio = true;
     else if (a === "--plain" || a === "--no-tui") out.plain = true;
     else if (a === "--worker-dir") out.workerDir = argv[++i];
@@ -129,6 +134,13 @@ async function main() {
     toolStyle: args.toolStyle,
   });
 
+  const desktopEnabled =
+    Boolean(args.desktop) ||
+    process.env.EDGE_DESKTOP === "1" ||
+    process.env.RAKAZO_PC_EDGE_DESKTOP === "1";
+  const desktopBackend = args.desktopBackend ?? parseDesktopBackend(process.env.EDGE_DESKTOP_BACKEND);
+  const desktop = new DesktopController(desktopEnabled, desktopBackend);
+
   if (privilege === "sandbox") {
     try {
       assertSandboxAvailable();
@@ -153,12 +165,17 @@ async function main() {
       "[rakazo-pc-edge] WARNING: half-god mode. File tools stay in the access root, but shell/sessions are NOT sandboxed and can leave it.",
     );
   }
+  if (desktopEnabled) {
+    console.warn(
+      "[rakazo-pc-edge] Desktop control enabled (screenshot/mouse/keyboard + optional local VNC). Treat the Bearer token like console access.",
+    );
+  }
 
   const sessions = new SessionManager(scope);
   const infoTool = formatToolName(instance, "info");
 
   if (args.stdio) {
-    await startStdioMcp(scope, sessions, instance);
+    await startStdioMcp(scope, sessions, instance, desktop);
     return;
   }
 
@@ -177,6 +194,7 @@ async function main() {
     scope,
     sessions,
     instance,
+    desktop,
     host: args.host,
     port: args.port,
     token,
@@ -197,11 +215,12 @@ async function main() {
   const titleBits = [
     `name=${instance.name}`,
     `tools=${instance.toolStyle}`,
+    desktopEnabled ? `desktop=${desktopBackend}` : null,
     `privilege=${privilegeLabel(scope.privilege)}`,
     `mode=${scope.mode}`,
     `root=${scope.root ?? "(global)"}`,
     url,
-  ];
+  ].filter(Boolean) as string[];
 
   if (useTui) {
     tui = startTui({
@@ -216,6 +235,11 @@ async function main() {
     console.log(
       `[rakazo-pc-edge] privilege=${privilegeLabel(scope.privilege)} mode=${scope.mode} root=${scope.root ?? "(global)"}`,
     );
+    if (desktopEnabled) {
+      console.log(
+        `[rakazo-pc-edge] desktop=${desktopBackend} live=http://${args.host}:${args.port}/desktop/frame.jpg`,
+      );
+    }
     console.log(`[rakazo-pc-edge] MCP endpoint: ${url}`);
     console.log(`[rakazo-pc-edge] health: http://${args.host}:${args.port}/healthz`);
     console.log(`[rakazo-pc-edge] Authorization: Bearer <token>`);

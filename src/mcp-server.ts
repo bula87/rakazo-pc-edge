@@ -31,6 +31,7 @@ import type { SessionEventKind } from "./classify.js";
 import { log, logBlock, summarize } from "./log.js";
 import { sandboxBackend } from "./privilege.js";
 import { formatToolName, type EdgeInstance } from "./instance.js";
+import type { DesktopController } from "./desktop/index.js";
 
 function jsonResult(data: unknown) {
   return {
@@ -103,6 +104,7 @@ export function createEdgeMcp(
   scope: AccessScope,
   sessions: SessionManager,
   instance: EdgeInstance,
+  desktop?: DesktopController,
 ) {
   const t = (leaf: string) => formatToolName(instance, leaf);
   const server = new McpServer({
@@ -147,6 +149,7 @@ export function createEdgeMcp(
         hostname: instance.hostname,
         machineId: instance.machineId,
         sessions: sessions.list().length,
+        desktopEnabled: Boolean(desktop?.isEnabled()),
         privilegeHelp: {
           sandbox:
             "default — file tools + shell/sessions/OpenCode under OS jail (bwrap on Linux, Seatbelt on macOS)",
@@ -697,6 +700,208 @@ export function createEdgeMcp(
     }),
   );
 
+
+  // ── Desktop / computer-use (native + VNC hybrid; vincent-vnc-mcp inspired) ─
+  if (desktop?.isEnabled()) {
+    server.tool(
+      t("desktop_info"),
+      "PC Edge desktop: capabilities for hybrid computer-use (native screenshot/input and/or local VNC). Call before screen/mouse tools.",
+      {},
+      wrapTool(t("desktop_info"), async () => {
+        try {
+          return jsonResult(await desktop.capabilities());
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_snapshot"),
+      "Capture the desktop as JPEG (base64). Uses VNC frame cache when connected, else native screenshot. Optional region + maxWidth.",
+      {
+        maxWidth: z.number().int().positive().optional(),
+        quality: z.number().int().min(1).max(100).optional(),
+        x: z.number().int().optional(),
+        y: z.number().int().optional(),
+        width: z.number().int().positive().optional(),
+        height: z.number().int().positive().optional(),
+      },
+      wrapTool(t("desktop_snapshot"), async (args) => {
+        try {
+          const region =
+            args.x != null && args.y != null && args.width != null && args.height != null
+              ? { x: args.x, y: args.y, width: args.width, height: args.height }
+              : undefined;
+          const frame = await desktop.snapshot({
+            maxWidth: args.maxWidth,
+            quality: args.quality,
+            region,
+          });
+          return jsonResult({
+            width: frame.width,
+            height: frame.height,
+            format: frame.format,
+            backend: frame.backend,
+            capturedAt: frame.capturedAt,
+            bytes: frame.bytes.length,
+            contentBase64: frame.bytes.toString("base64"),
+          });
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_screen_size"),
+      "Return desktop width/height in pixels (VNC or native).",
+      {},
+      wrapTool(t("desktop_screen_size"), async () => {
+        try {
+          return jsonResult(await desktop.screenSize());
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_mouse_move"),
+      "Move the mouse to absolute screen coordinates (x, y).",
+      { x: z.number(), y: z.number() },
+      wrapTool(t("desktop_mouse_move"), async ({ x, y }) => {
+        try {
+          return jsonResult(await desktop.move(x, y));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_mouse_click"),
+      "Click at (x, y). button: left|middle|right. double: true for double-click.",
+      {
+        x: z.number(),
+        y: z.number(),
+        button: z.enum(["left", "middle", "right"]).optional(),
+        double: z.boolean().optional(),
+      },
+      wrapTool(t("desktop_mouse_click"), async ({ x, y, button, double }) => {
+        try {
+          return jsonResult(await desktop.click(x, y, button ?? "left", Boolean(double)));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_mouse_scroll"),
+      "Scroll at (x, y). Negative dy scrolls up, positive down (wheel clicks).",
+      { x: z.number(), y: z.number(), dy: z.number().int() },
+      wrapTool(t("desktop_mouse_scroll"), async ({ x, y, dy }) => {
+        try {
+          return jsonResult(await desktop.scroll(x, y, dy));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_mouse_drag"),
+      "Press at (x1,y1), drag to (x2,y2), release (vincent-style). button: left|middle|right.",
+      {
+        x1: z.number(),
+        y1: z.number(),
+        x2: z.number(),
+        y2: z.number(),
+        button: z.enum(["left", "middle", "right"]).optional(),
+      },
+      wrapTool(t("desktop_mouse_drag"), async ({ x1, y1, x2, y2, button }) => {
+        try {
+          return jsonResult(await desktop.drag(x1, y1, x2, y2, button ?? "left"));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_wait_change"),
+      "Block until the screen changes (VNC frame-size proxy or native snapshot compare) or timeout.",
+      {
+        timeoutMs: z.number().int().positive().optional(),
+        pollIntervalMs: z.number().int().positive().optional(),
+      },
+      wrapTool(t("desktop_wait_change"), async ({ timeoutMs, pollIntervalMs }) => {
+        try {
+          return jsonResult(await desktop.waitForScreenChange(timeoutMs, pollIntervalMs));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_type"),
+      "Type literal text into the focused UI (VNC or native).",
+      { text: z.string() },
+      wrapTool(t("desktop_type"), async ({ text }) => {
+        try {
+          return jsonResult(await desktop.type(text));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_keys"),
+      "Press a key or chord, e.g. [\"enter\"] or [\"cmd\",\"c\"]. Names: enter, esc, tab, cmd/ctrl/alt/shift, arrows, letters.",
+      { keys: z.array(z.string()).min(1) },
+      wrapTool(t("desktop_keys"), async ({ keys }) => {
+        try {
+          return jsonResult(await desktop.keys(keys));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_open"),
+      "Open a URL or file with the OS (native). Optional app name on macOS (e.g. Safari).",
+      { target: z.string(), app: z.string().optional() },
+      wrapTool(t("desktop_open"), async ({ target, app }) => {
+        try {
+          return jsonResult(await desktop.open(target, app));
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+
+    server.tool(
+      t("desktop_vnc_status"),
+      "Status of the persistent local VNC/Screen Sharing client (vincent-style). Live JPEG: GET /desktop/frame.jpg with Bearer token.",
+      {},
+      wrapTool(t("desktop_vnc_status"), async () => {
+        try {
+          return jsonResult({
+            ...desktop.vncStatus(),
+            liveView: "/desktop/frame.jpg",
+            hint: "Set EDGE_VNC_USER + EDGE_VNC_PASSWORD; enable Screen Sharing on macOS",
+          });
+        } catch (err) {
+          return errorResult(err);
+        }
+      }),
+    );
+  }
+
   return server;
 }
 
@@ -704,9 +909,11 @@ export async function startStdioMcp(
   scope: AccessScope,
   sessions: SessionManager,
   instance: EdgeInstance,
+  desktop?: DesktopController,
 ): Promise<void> {
   log(`stdio MCP transport starting name=${instance.name} style=${instance.toolStyle}`);
-  const mcp = createEdgeMcp(scope, sessions, instance);
+  await desktop?.start();
+  const mcp = createEdgeMcp(scope, sessions, instance, desktop);
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
 }
@@ -739,10 +946,12 @@ export async function listenMcp(opts: {
   scope: AccessScope;
   sessions: SessionManager;
   instance: EdgeInstance;
+  desktop?: DesktopController;
   host: string;
   port: number;
   token: string;
 }): Promise<{ url: string; close: () => Promise<void> }> {
+  await opts.desktop?.start();
   const httpServer = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const client = req.socket.remoteAddress ?? "?";
@@ -757,8 +966,42 @@ export async function listenMcp(opts: {
           mode: opts.scope.mode,
           root: opts.scope.root,
           privilege: opts.scope.privilege,
+          desktop: Boolean(opts.desktop?.isEnabled()),
+          vnc: opts.desktop?.isEnabled() ? opts.desktop.vncStatus().state : null,
         }),
       );
+      return;
+    }
+
+    // Live desktop view (vincent-style JPEG poller) — same Bearer as MCP
+    if (url.pathname === "/desktop/frame.jpg" || url.pathname === "/desktop/frame.jpeg") {
+      const token = getBearer(req) || url.searchParams.get("token");
+      if (!token || token !== opts.token) {
+        unauthorized(res);
+        return;
+      }
+      if (!opts.desktop?.isEnabled()) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "desktop disabled" }));
+        return;
+      }
+      try {
+        let frame = opts.desktop.latestVncFrame();
+        if (!frame) {
+          frame = await opts.desktop.snapshot({ maxWidth: 1280, quality: 55 });
+        }
+        res.writeHead(200, {
+          "content-type": "image/jpeg",
+          "cache-control": "no-store",
+          "x-edge-backend": frame.backend,
+          "x-edge-width": String(frame.width),
+          "x-edge-height": String(frame.height),
+        });
+        res.end(frame.bytes);
+      } catch (err) {
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
       return;
     }
 
@@ -776,7 +1019,7 @@ export async function listenMcp(opts: {
       return;
     }
 
-    const mcp = createEdgeMcp(opts.scope, opts.sessions, opts.instance);
+    const mcp = createEdgeMcp(opts.scope, opts.sessions, opts.instance, opts.desktop);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -817,6 +1060,7 @@ export async function listenMcp(opts: {
     url: mcpUrl,
     close: async () => {
       opts.sessions.closeAll();
+      await opts.desktop?.stop();
       await new Promise<void>((resolve, reject) => {
         httpServer.close((err) => (err ? reject(err) : resolve()));
       });
