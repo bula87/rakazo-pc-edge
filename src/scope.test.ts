@@ -18,6 +18,7 @@ describe("scope", () => {
   it("scopes to worker-dir", () => {
     const scope = createScope({ workerDir: nested });
     assert.equal(scope.mode, "worker-dir");
+    assert.equal(scope.privilege, "sandbox");
     assert.equal(resolveInScope(scope, "a.txt"), path.join(nested, "a.txt"));
     assert.throws(() => resolveInScope(scope, path.join(root, "outside.txt")));
   });
@@ -25,7 +26,14 @@ describe("scope", () => {
   it("allows global anywhere", () => {
     const scope = createScope({ global: true });
     assert.equal(scope.mode, "global");
+    assert.equal(scope.privilege, "god");
     assert.ok(resolveInScope(scope, "/tmp").startsWith("/"));
+  });
+
+  it("half-god keeps file scope", () => {
+    const scope = createScope({ workerDir: nested, privilege: "half-god" });
+    assert.equal(scope.privilege, "half-god");
+    assert.throws(() => resolveInScope(scope, path.join(root, "outside.txt")));
   });
 
   it("denies secret basenames", () => {

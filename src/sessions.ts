@@ -13,6 +13,7 @@ import {
   type UiBusyState,
 } from "./pty-answers.js";
 import { OpencodeJsonPretty } from "./opencode-format.js";
+import { wrapForPrivilege } from "./privilege.js";
 import type { AccessScope } from "./scope.js";
 import { resolveInScope } from "./scope.js";
 import { TermScreen } from "./term-screen.js";
@@ -47,6 +48,8 @@ export interface SessionInfo {
   /** OpenCode ses_… id when this Edge session is an opencode run. */
   opencodeSessionId?: string;
   pretty?: "opencode-json";
+  /** Whether this process was launched under bubblewrap. */
+  sandboxed?: boolean;
 }
 
 export interface SessionEvent {
@@ -170,15 +173,25 @@ export class SessionManager {
     this.sessions.set(id, live);
 
     const env = { ...process.env, ...(opts.env ?? {}) };
+    const wrapped = wrapForPrivilege(
+      this.scope.privilege,
+      this.scope.root,
+      opts.cmd,
+      opts.args ?? [],
+      { chdir: cwd },
+    );
+    info.sandboxed = wrapped.sandboxed;
+    info.cmd = opts.cmd;
+    info.args = opts.args ?? [];
     log(
-      `session SPAWN id=${id} label=${info.label} pty=${wantPty} cwd=${cwd} cmd=${opts.cmd} args=${summarize(opts.args ?? [])}`,
+      `session SPAWN id=${id} label=${info.label} pty=${wantPty} sandboxed=${wrapped.sandboxed} privilege=${this.scope.privilege} cwd=${cwd} cmd=${opts.cmd} args=${summarize(opts.args ?? [])}`,
     );
 
     if (wantPty && (await this.canUsePty())) {
-      await this.spawnPty(live, opts.cmd, opts.args ?? [], cwd, env);
+      await this.spawnPty(live, wrapped.cmd, wrapped.args, cwd, env, wrapped.sandboxed);
     } else {
       info.pty = false;
-      this.spawnPipes(live, opts.cmd, opts.args ?? [], cwd, env);
+      this.spawnPipes(live, wrapped.cmd, wrapped.args, cwd, env, wrapped.sandboxed);
     }
     const status = this.status(id);
     bus.emit("session:spawn", status);
@@ -737,6 +750,7 @@ export class SessionManager {
     args: string[],
     cwd: string,
     env: NodeJS.ProcessEnv,
+    sandboxed: boolean,
   ): Promise<void> {
     const cols = 120;
     const rows = 40;
@@ -746,7 +760,8 @@ export class SessionManager {
       name: "xterm-256color",
       cols,
       rows,
-      cwd,
+      // bwrap sets --chdir to the jail root; avoid fighting it with a host cwd.
+      cwd: sandboxed ? undefined : cwd,
       env: env as Record<string, string>,
     });
     live.ptyProcess = proc;
@@ -760,9 +775,10 @@ export class SessionManager {
     args: string[],
     cwd: string,
     env: NodeJS.ProcessEnv,
+    sandboxed: boolean,
   ): void {
     const child = cpSpawn(cmd, args, {
-      cwd,
+      cwd: sandboxed ? undefined : cwd,
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });

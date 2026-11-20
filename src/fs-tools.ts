@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { wrapForPrivilege } from "./privilege.js";
 import type { AccessScope } from "./scope.js";
 import { isDeniedSecretPath, resolveInScope } from "./scope.js";
 
@@ -213,14 +214,25 @@ export async function shellTool(
   scope: AccessScope,
   command: string,
   opts?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> },
-): Promise<{ stdout: string; stderr: string; exitCode: number; cwd: string }> {
+): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  cwd: string;
+  sandboxed: boolean;
+  privilege: AccessScope["privilege"];
+}> {
   const cwd = resolveInScope(scope, opts?.cwd ?? ".");
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const shell = process.env.SHELL || "/bin/bash";
+  const wrapped = wrapForPrivilege(scope.privilege, scope.root, shell, ["-lc", command], {
+    chdir: cwd,
+  });
 
   return new Promise((resolve, reject) => {
-    const child = spawn(shell, ["-lc", command], {
-      cwd,
+    const child = spawn(wrapped.cmd, wrapped.args, {
+      // When sandboxed, bwrap --chdir sets the jail cwd; host cwd is still the root.
+      cwd: wrapped.sandboxed ? undefined : cwd,
       env: { ...process.env, ...(opts?.env ?? {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -246,7 +258,14 @@ export async function shellTool(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ stdout, stderr, exitCode: code ?? 1, cwd });
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code ?? 1,
+        cwd,
+        sandboxed: wrapped.sandboxed,
+        privilege: scope.privilege,
+      });
     });
   });
 }

@@ -12,6 +12,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { log, summarize } from "./log.js";
+import { wrapForPrivilege } from "./privilege.js";
 import type { AccessScope } from "./scope.js";
 import { resolveInScope } from "./scope.js";
 import type { SessionManager } from "./sessions.js";
@@ -114,6 +115,8 @@ export async function opencodeApi(
     cwd?: string;
     standalone?: boolean;
     timeoutMs?: number;
+    /** When set, sandbox wraps this API call according to privilege. */
+    scope?: AccessScope;
   },
 ): Promise<unknown> {
   const bin = await resolveOpencodeBinary();
@@ -129,11 +132,20 @@ export async function opencodeApi(
     args.push("--data", JSON.stringify(opts.data));
   }
 
-  log(`opencode api op=${operation} cwd=${opts?.cwd ?? "(default)"} args=${summarize(args)}`);
+  const chdir = opts?.cwd ?? opts?.scope?.root ?? undefined;
+  const wrapped = opts?.scope
+    ? wrapForPrivilege(opts.scope.privilege, opts.scope.root, bin, args, {
+        chdir: chdir ?? opts.scope.root ?? undefined,
+      })
+    : { cmd: bin, args, sandboxed: false };
+
+  log(
+    `opencode api op=${operation} sandboxed=${wrapped.sandboxed} cwd=${opts?.cwd ?? "(default)"} args=${summarize(args)}`,
+  );
 
   return new Promise((resolve, reject) => {
-    const child = cpSpawn(bin, args, {
-      cwd: opts?.cwd,
+    const child = cpSpawn(wrapped.cmd, wrapped.args, {
+      cwd: wrapped.sandboxed ? undefined : opts?.cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -234,8 +246,9 @@ export interface OpencodeProviderInfo {
 
 export async function opencodeListModels(opts?: {
   cwd?: string;
+  scope?: AccessScope;
 }): Promise<OpencodeModelInfo[]> {
-  const raw = await opencodeApi("model.list", { cwd: opts?.cwd });
+  const raw = await opencodeApi("model.list", { cwd: opts?.cwd, scope: opts?.scope });
   const data = unwrapData<Record<string, unknown>[]>(raw);
   if (!Array.isArray(data)) return [];
   return data.map((m) => {
@@ -258,11 +271,18 @@ export async function opencodeListModels(opts?: {
 /** Simple `provider/model` id list from `opencode models` CLI (fallback / quick). */
 export async function opencodeListModelRefs(opts?: {
   cwd?: string;
+  scope?: AccessScope;
 }): Promise<string[]> {
   const bin = await resolveOpencodeBinary();
+  const args = ["models"];
+  const wrapped = opts?.scope
+    ? wrapForPrivilege(opts.scope.privilege, opts.scope.root, bin, args, {
+        chdir: opts.cwd ?? opts.scope.root ?? undefined,
+      })
+    : { cmd: bin, args, sandboxed: false };
   return new Promise((resolve, reject) => {
-    const child = cpSpawn(bin, ["models"], {
-      cwd: opts?.cwd,
+    const child = cpSpawn(wrapped.cmd, wrapped.args, {
+      cwd: wrapped.sandboxed ? undefined : opts?.cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -302,8 +322,9 @@ export async function opencodeListModelRefs(opts?: {
 
 export async function opencodeListProviders(opts?: {
   cwd?: string;
+  scope?: AccessScope;
 }): Promise<OpencodeProviderInfo[]> {
-  const raw = await opencodeApi("provider.list", { cwd: opts?.cwd });
+  const raw = await opencodeApi("provider.list", { cwd: opts?.cwd, scope: opts?.scope });
   const data = unwrapData<Record<string, unknown>[]>(raw);
   if (!Array.isArray(data)) return [];
   return data.map((p) => {
@@ -322,8 +343,9 @@ export async function opencodeListProviders(opts?: {
 
 export async function opencodeListSessions(opts?: {
   cwd?: string;
+  scope?: AccessScope;
 }): Promise<OpencodeSessionInfo[]> {
-  const raw = await opencodeApi("session.list", { cwd: opts?.cwd });
+  const raw = await opencodeApi("session.list", { cwd: opts?.cwd, scope: opts?.scope });
   const data = unwrapData<OpencodeSessionInfo[]>(raw);
   return Array.isArray(data) ? data : [];
 }
@@ -331,9 +353,11 @@ export async function opencodeListSessions(opts?: {
 export async function opencodeCreateSession(opts: {
   cwd: string;
   title?: string;
+  scope?: AccessScope;
 }): Promise<OpencodeSessionInfo> {
   const raw = await opencodeApi("session.create", {
     cwd: opts.cwd,
+    scope: opts.scope,
     data: {
       title: opts.title ?? `rakazo-edge ${new Date().toISOString()}`,
       location: { directory: opts.cwd },
@@ -346,9 +370,11 @@ export async function opencodePrompt(opts: {
   sessionId: string;
   text: string;
   cwd?: string;
+  scope?: AccessScope;
 }): Promise<unknown> {
   return opencodeApi("session.prompt", {
     cwd: opts.cwd,
+    scope: opts.scope,
     params: { sessionID: opts.sessionId },
     data: { text: opts.text },
     timeoutMs: 120_000,
@@ -357,9 +383,9 @@ export async function opencodePrompt(opts: {
 
 export async function opencodeGetSession(
   sessionId: string,
-  opts?: { cwd?: string },
+  opts?: { cwd?: string; scope?: AccessScope },
 ): Promise<OpencodeSessionInfo | null> {
-  const list = await opencodeListSessions({ cwd: opts?.cwd });
+  const list = await opencodeListSessions({ cwd: opts?.cwd, scope: opts?.scope });
   return list.find((s) => s.id === sessionId) ?? null;
 }
 
@@ -369,6 +395,7 @@ export async function opencodeGetSession(
 export async function opencodeWaitIdle(opts: {
   sessionId: string;
   cwd?: string;
+  scope?: AccessScope;
   timeoutMs?: number;
   afterBusy?: boolean;
   pollMs?: number;
@@ -380,7 +407,7 @@ export async function opencodeWaitIdle(opts: {
   let sawBusy = !afterBusy;
 
   while (Date.now() - started < timeoutMs) {
-    const s = await opencodeGetSession(opts.sessionId, { cwd: opts.cwd });
+    const s = await opencodeGetSession(opts.sessionId, { cwd: opts.cwd, scope: opts.scope });
     if (!s) throw new Error(`OpenCode session not found: ${opts.sessionId}`);
     const busyAt = s.time?.busy ?? 0;
     const idleAt = s.time?.idle ?? 0;

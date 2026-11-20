@@ -111,10 +111,17 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
       jsonResult({
         mode: scope.mode,
         root: scope.root,
+        privilege: scope.privilege,
+        sandboxedProcesses: scope.privilege === "sandbox",
         platform: process.platform,
         cwd: process.cwd(),
         hostname: process.env.HOSTNAME ?? null,
         sessions: sessions.list().length,
+        privilegeHelp: {
+          sandbox: "default — file tools + shell/sessions/OpenCode under bubblewrap (bwrap)",
+          "half-god": "file tools stay in root; shell/sessions can reach the whole PC",
+          god: "full PC access for tools and shell (--god / --global)",
+        },
       }),
     ),
   );
@@ -475,10 +482,10 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
       try {
         const dir = cwd ? resolveOpencodeCwd(scope, cwd) : undefined;
         if (detailed === false) {
-          const refs = await opencodeListModelRefs({ cwd: dir });
+          const refs = await opencodeListModelRefs({ cwd: dir, scope });
           return jsonResult({ refs });
         }
-        const models = await opencodeListModels({ cwd: dir });
+        const models = await opencodeListModels({ cwd: dir, scope });
         return jsonResult({
           models,
           hint: "Pass model: \"<ref>\" to edge_opencode_run / edge_opencode_prompt / edge_opencode_test_model",
@@ -496,7 +503,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
     wrapTool("edge_opencode_providers", async ({ cwd }) => {
       try {
         const dir = cwd ? resolveOpencodeCwd(scope, cwd) : undefined;
-        const providers = await opencodeListProviders({ cwd: dir });
+        const providers = await opencodeListProviders({ cwd: dir, scope });
         return jsonResult({ providers });
       } catch (err) {
         return errorResult(err);
@@ -573,7 +580,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
     wrapTool("edge_opencode_session_create", async ({ cwd, title }) => {
       try {
         const dir = resolveOpencodeCwd(scope, cwd);
-        const session = await opencodeCreateSession({ cwd: dir, title });
+        const session = await opencodeCreateSession({ cwd: dir, title, scope });
         return jsonResult({ session, cwd: dir });
       } catch (err) {
         return errorResult(err);
@@ -625,7 +632,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
     wrapTool("edge_opencode_sessions", async ({ cwd }) => {
       try {
         const dir = cwd ? resolveOpencodeCwd(scope, cwd) : undefined;
-        const list = await opencodeListSessions({ cwd: dir });
+        const list = await opencodeListSessions({ cwd: dir, scope });
         return jsonResult({ sessions: list });
       } catch (err) {
         return errorResult(err);
@@ -648,6 +655,7 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         const session = await opencodeWaitIdle({
           sessionId: opencodeSessionId,
           cwd: dir,
+          scope,
           timeoutMs,
           afterBusy,
         });
@@ -705,7 +713,14 @@ export async function listenMcp(opts: {
 
     if (url.pathname === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, mode: opts.scope.mode, root: opts.scope.root }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          mode: opts.scope.mode,
+          root: opts.scope.root,
+          privilege: opts.scope.privilege,
+        }),
+      );
       return;
     }
 
