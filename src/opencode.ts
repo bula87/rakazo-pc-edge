@@ -145,7 +145,7 @@ export async function opencodeApi(
 
   return new Promise((resolve, reject) => {
     const child = cpSpawn(wrapped.cmd, wrapped.args, {
-      cwd: wrapped.sandboxed ? undefined : opts?.cwd,
+      cwd: wrapped.sandboxed ? wrapped.cwd : opts?.cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -282,7 +282,7 @@ export async function opencodeListModelRefs(opts?: {
     : { cmd: bin, args, sandboxed: false };
   return new Promise((resolve, reject) => {
     const child = cpSpawn(wrapped.cmd, wrapped.args, {
-      cwd: wrapped.sandboxed ? undefined : opts?.cwd,
+      cwd: wrapped.sandboxed ? wrapped.cwd : opts?.cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });

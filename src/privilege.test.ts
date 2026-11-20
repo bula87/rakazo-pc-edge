@@ -6,14 +6,17 @@ import { spawnSync } from "node:child_process";
 import { after, describe, it } from "node:test";
 import {
   buildBwrapArgs,
+  buildSeatbeltProfile,
   resolveBwrapBinary,
   resolveChdirUnderRoot,
+  sandboxBackend,
+  sbEscape,
   wrapForPrivilege,
 } from "./privilege.js";
 import { createScope } from "./scope.js";
 import { shellTool } from "./fs-tools.js";
 
-describe("privilege / bwrap", () => {
+describe("privilege / sandbox", () => {
   const root = mkdtempSync(path.join(tmpdir(), "pc-edge-priv-"));
   const nested = path.join(root, "proj");
   mkdirSync(nested);
@@ -43,6 +46,24 @@ describe("privilege / bwrap", () => {
     assert.throws(() => resolveChdirUnderRoot(nested, root));
   });
 
+  it("sandboxBackend is bwrap on linux and seatbelt on darwin", () => {
+    assert.equal(sandboxBackend("linux"), "bwrap");
+    assert.equal(sandboxBackend("darwin"), "seatbelt");
+    assert.throws(() => sandboxBackend("win32"));
+  });
+
+  it("sbEscape escapes quotes and backslashes", () => {
+    assert.equal(sbEscape('a"b\\c'), 'a\\"b\\\\c');
+  });
+
+  it("buildSeatbeltProfile denies default and allows the project root", () => {
+    const profile = buildSeatbeltProfile(nested, "/bin/true");
+    assert.match(profile, /\(deny default\)/);
+    assert.match(profile, /\(allow network\*\)/);
+    assert.match(profile, new RegExp(`subpath "${nested.replace(/\\/g, "\\\\")}"`));
+    assert.match(profile, /\(allow process\*\)/);
+  });
+
   it("buildBwrapArgs includes bind of root and command", () => {
     const args = buildBwrapArgs(nested, "/bin/true", []);
     assert.ok(args.includes("--bind"));
@@ -57,22 +78,21 @@ describe("privilege / bwrap", () => {
   });
 
   it("wrapForPrivilege is no-op for half-god and god", () => {
-    const half = wrapForPrivilege("half-god", nested, "/bin/echo", ["hi"]);
+    const half = wrapForPrivilege("half-god", nested, "/bin/echo", ["hi"], { chdir: nested });
     assert.equal(half.sandboxed, false);
     assert.equal(half.cmd, "/bin/echo");
+    assert.equal(half.cwd, nested);
     const god = wrapForPrivilege("god", null, "/bin/echo", ["hi"]);
     assert.equal(god.sandboxed, false);
   });
 
   it("sandbox shell cannot read outside the root", async () => {
-    let bwrap: string;
+    if (process.platform !== "linux" && process.platform !== "darwin") return;
     try {
-      bwrap = resolveBwrapBinary();
+      if (process.platform === "linux") resolveBwrapBinary();
     } catch {
-      // Skip on hosts without bubblewrap.
       return;
     }
-    assert.ok(bwrap);
 
     const outside = path.join(root, "secret.txt");
     writeFileSync(outside, "top-secret");
@@ -98,7 +118,8 @@ describe("privilege / bwrap", () => {
     assert.equal(probe.sandboxed, false);
   });
 
-  it("bwrap binary runs --version", () => {
+  it("bwrap binary runs --version on linux", () => {
+    if (process.platform !== "linux") return;
     try {
       const bin = resolveBwrapBinary();
       const r = spawnSync(bin, ["--version"], { encoding: "utf8" });

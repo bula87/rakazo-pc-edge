@@ -29,6 +29,7 @@ import {
 import { SessionManager } from "./sessions.js";
 import type { SessionEventKind } from "./classify.js";
 import { log, logBlock, summarize } from "./log.js";
+import { sandboxBackend } from "./privilege.js";
 
 function jsonResult(data: unknown) {
   return {
@@ -113,12 +114,23 @@ export function createEdgeMcp(scope: AccessScope, sessions: SessionManager) {
         root: scope.root,
         privilege: scope.privilege,
         sandboxedProcesses: scope.privilege === "sandbox",
+        sandboxBackend:
+          scope.privilege === "sandbox"
+            ? (() => {
+                try {
+                  return sandboxBackend();
+                } catch {
+                  return null;
+                }
+              })()
+            : null,
         platform: process.platform,
         cwd: process.cwd(),
         hostname: process.env.HOSTNAME ?? null,
         sessions: sessions.list().length,
         privilegeHelp: {
-          sandbox: "default — file tools + shell/sessions/OpenCode under bubblewrap (bwrap)",
+          sandbox:
+            "default — file tools + shell/sessions/OpenCode under OS jail (bwrap on Linux, Seatbelt on macOS)",
           "half-god": "file tools stay in root; shell/sessions can reach the whole PC",
           god: "full PC access for tools and shell (--god / --global)",
         },

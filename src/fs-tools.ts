@@ -231,8 +231,8 @@ export async function shellTool(
 
   return new Promise((resolve, reject) => {
     const child = spawn(wrapped.cmd, wrapped.args, {
-      // When sandboxed, bwrap --chdir sets the jail cwd; host cwd is still the root.
-      cwd: wrapped.sandboxed ? undefined : cwd,
+      // bwrap: omit host cwd (jail --chdir). seatbelt/unsandboxed: use wrapped.cwd or cwd.
+      cwd: wrapped.sandboxed ? wrapped.cwd : cwd,
       env: { ...process.env, ...(opts?.env ?? {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });

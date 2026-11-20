@@ -11,8 +11,8 @@ function usage(): never {
   rakazo-pc-edge [options]
 
 Privilege (pick one; default is sandbox):
-  (default) / --sandbox  File tools + shell/sessions/OpenCode confined with bubblewrap
-                         to the access root (requires bwrap; override with BWRAP_BIN)
+  (default) / --sandbox  File tools + shell/sessions/OpenCode confined to the access root
+                         Linux: bubblewrap (bwrap). macOS: Seatbelt (sandbox-exec).
   --half-god             File tools stay in the access root; shell/sessions can leave it
   --god                  Full PC access for tools and shell (alias: --global)
 
@@ -30,7 +30,8 @@ Server:
 
 Env:
   RAKAZO_PC_EDGE_TOKEN   Shared secret required by Rakazo MCP registration
-  BWRAP_BIN              Absolute path to bubblewrap (sandbox mode)
+  BWRAP_BIN              Absolute path to bubblewrap (Linux sandbox)
+  SEATBELT_BIN           Absolute path to sandbox-exec (macOS sandbox; default /usr/bin/sandbox-exec)
   OPENCODE_BIN           Absolute path to opencode (optional)
 `);
   process.exit(2);

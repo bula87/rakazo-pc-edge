@@ -188,10 +188,10 @@ export class SessionManager {
     );
 
     if (wantPty && (await this.canUsePty())) {
-      await this.spawnPty(live, wrapped.cmd, wrapped.args, cwd, env, wrapped.sandboxed);
+      await this.spawnPty(live, wrapped.cmd, wrapped.args, env, wrapped.cwd);
     } else {
       info.pty = false;
-      this.spawnPipes(live, wrapped.cmd, wrapped.args, cwd, env, wrapped.sandboxed);
+      this.spawnPipes(live, wrapped.cmd, wrapped.args, env, wrapped.cwd);
     }
     const status = this.status(id);
     bus.emit("session:spawn", status);
@@ -748,9 +748,8 @@ export class SessionManager {
     live: LiveSession,
     cmd: string,
     args: string[],
-    cwd: string,
     env: NodeJS.ProcessEnv,
-    sandboxed: boolean,
+    spawnCwd: string | undefined,
   ): Promise<void> {
     const cols = 120;
     const rows = 40;
@@ -760,8 +759,8 @@ export class SessionManager {
       name: "xterm-256color",
       cols,
       rows,
-      // bwrap sets --chdir to the jail root; avoid fighting it with a host cwd.
-      cwd: sandboxed ? undefined : cwd,
+      // undefined when bwrap sets --chdir inside the jail.
+      cwd: spawnCwd,
       env: env as Record<string, string>,
     });
     live.ptyProcess = proc;
@@ -773,12 +772,11 @@ export class SessionManager {
     live: LiveSession,
     cmd: string,
     args: string[],
-    cwd: string,
     env: NodeJS.ProcessEnv,
-    sandboxed: boolean,
+    spawnCwd: string | undefined,
   ): void {
     const child = cpSpawn(cmd, args, {
-      cwd: sandboxed ? undefined : cwd,
+      cwd: spawnCwd,
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });
